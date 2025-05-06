@@ -87,4 +87,3 @@ handling. like WriteError function which is used inside a *if err != nil* block.
 # Issues to Fix
 
 1. how to create live server and auto-detect changes?
-2. Input validation for URL - using net/url package

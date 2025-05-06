@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"net/http"
 	urlpkg "net/url"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -106,11 +109,20 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	mappingFile, err := os.OpenFile("url_mapping.json", os.O_CREATE, os.ModePerm)
+	var osSignal = make(chan os.Signal, 1)
+
+	readFile, err := os.OpenFile("url_mapping.json", os.O_CREATE, os.ModePerm)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("unable to open mapping file:", err)
 	}
-	err = json.NewDecoder(mappingFile).Decode(&UrlMapping)
+	defer func(readFile *os.File) {
+		err := readFile.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(readFile)
+
+	err = json.NewDecoder(readFile).Decode(&UrlMapping)
 	if err != nil && err.Error() != "EOF" {
 		log.Fatal("unable to unmarshall json mapping", err)
 	}
@@ -118,8 +130,37 @@ func main() {
 	mux.HandleFunc("POST /shorten", UrlShortenHandler)
 	mux.HandleFunc("GET /urls", GetUrlHandler)
 	mux.HandleFunc("GET /t/{shortCode}", RedirectHandler)
-	err = http.ListenAndServe(":8080", mux)
+
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	signal.Notify(osSignal, os.Interrupt, os.Kill, syscall.SIGTERM)
+	<-osSignal
+	log.Println("Shutting down server...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal(err)
+	}
+	writeFile, err := os.OpenFile("url_mapping.json", os.O_WRONLY|os.O_TRUNC, os.ModePerm)
 	if err != nil {
-		panic(err)
+		log.Fatal("unable to open mapping file:", err)
+	}
+	defer func(writeFile *os.File) {
+		err := writeFile.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(writeFile)
+	err = json.NewEncoder(writeFile).Encode(UrlMapping)
+	if err != nil {
+		log.Fatal("unable to write json mapping:", err)
 	}
 }
