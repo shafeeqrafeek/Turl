@@ -78,7 +78,6 @@ func (t *turlApp) UrlShortenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	shortId := url.Shorten()
-	UrlMapping[shortId] = url.Url
 	err = t.DB.InsertUrl(url.Url, shortId)
 	if err != nil {
 		fmt.Println(err)
@@ -105,7 +104,6 @@ func (t *turlApp) GetUrlHandler(w http.ResponseWriter, _ *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errors.New("unable to get url data"))
 		return
 	}
-	//responseBytes, err := json.Marshal(UrlMapping)
 	responseBytes, err := json.Marshal(urlData)
 	if err != nil {
 		fmt.Println("Error marshalling response:", err)
@@ -119,9 +117,12 @@ func (t *turlApp) GetUrlHandler(w http.ResponseWriter, _ *http.Request) {
 func (t *turlApp) RedirectHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	shortCode := r.PathValue("shortCode")
-	redirectUrl, ok := UrlMapping[shortCode]
-	if !ok {
+	redirectUrl, err := t.DB.GetUrl(shortCode)
+	if redirectUrl == "" {
 		WriteError(w, http.StatusNotFound, errors.New("short code not found"))
+		return
+	} else if err != nil {
+		WriteError(w, http.StatusInternalServerError, errors.New(fmt.Sprintf("unable to get url for short_code %s: %s", shortCode, err)))
 		return
 	}
 	http.Redirect(w, r, redirectUrl, http.StatusFound)
@@ -148,21 +149,6 @@ func main() {
 
 	var osSignal = make(chan os.Signal, 1)
 
-	readFile, err := os.OpenFile("url_mapping.json", os.O_CREATE, os.ModePerm)
-	if err != nil {
-		log.Fatal("unable to open mapping file:", err)
-	}
-	defer func(readFile *os.File) {
-		err := readFile.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-	}(readFile)
-
-	err = json.NewDecoder(readFile).Decode(&UrlMapping)
-	if err != nil && err.Error() != "EOF" {
-		log.Fatal("unable to unmarshall json mapping", err)
-	}
 	mux := http.NewServeMux()
 	app := &turlApp{DB: DB}
 	mux.HandleFunc("POST /shorten", app.UrlShortenHandler)
@@ -186,19 +172,5 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		log.Fatal(err)
-	}
-	writeFile, err := os.OpenFile("url_mapping.json", os.O_WRONLY|os.O_TRUNC, os.ModePerm)
-	if err != nil {
-		log.Fatal("unable to open mapping file:", err)
-	}
-	defer func(writeFile *os.File) {
-		err := writeFile.Close()
-		if err != nil {
-			log.Fatal(err)
-		}
-	}(writeFile)
-	err = json.NewEncoder(writeFile).Encode(UrlMapping)
-	if err != nil {
-		log.Fatal("unable to write json mapping:", err)
 	}
 }

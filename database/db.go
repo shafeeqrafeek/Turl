@@ -35,6 +35,16 @@ func (db *DB) GetUrls() (map[string]string, error) {
 
 }
 
+// GetUrl retrieves the url corresponding to a short code
+func (db *DB) GetUrl(shortCode string) (string, error) {
+	var url string
+	err := db.QueryRow("SELECT url FROM urls WHERE short_code = ?", shortCode).Scan(&url)
+	if err != nil {
+		return "", err
+	}
+	return url, nil
+}
+
 func CreateDB() (*DB, error) {
 	db, err := sql.Open("sqlite3", "file:turl.db")
 	if err != nil {
