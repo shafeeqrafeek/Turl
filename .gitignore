@@ -1,3 +1,34 @@
 level2_reqs.txt
-.idea
 url_mapping.json
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of `go build`
+/bin/
+/build/
+/dist/
+
+# Output of `go run`
+*.out
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS-specific files
+.DS_Store
+*.db
+
+# Go workspace files
+go.work
+go.work.sum

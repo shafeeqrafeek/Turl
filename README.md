@@ -73,6 +73,8 @@ By defining the method along with url pattern. e.g., "GET /urls"
 1. net/http
 2. net/url - tiny package helpful for url parsing related stuff
 3. encoding/json
+4. database/sql - for database related stuff
+    - sql drivers link - https://golang.org/s/sqldrivers
 
 For testing:
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"Turl/database"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,10 @@ type UrlData struct {
 	Url string `json:"url"`
 }
 
+type turlApp struct {
+	DB *database.DB
+}
+
 func (u *UrlData) Shorten() string {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
@@ -30,8 +35,7 @@ func (u *UrlData) Shorten() string {
 		randomBytes[i] = charset[rng.Intn(len(charset))]
 	}
 	shortId := string(randomBytes)
-	UrlMapping[shortId] = u.Url
-	return string(randomBytes)
+	return shortId
 }
 
 func (u *UrlData) Validate() error {
@@ -66,15 +70,23 @@ func WriteError(w http.ResponseWriter, statusCode int, errMsg error) {
 	}
 }
 
-func UrlShortenHandler(w http.ResponseWriter, r *http.Request) {
+func (t *turlApp) UrlShortenHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	url, err := ParseRequest(r)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, err)
 		return
 	}
+	shortId := url.Shorten()
+	UrlMapping[shortId] = url.Url
+	err = t.DB.InsertUrl(url.Url, shortId)
+	if err != nil {
+		fmt.Println(err)
+		WriteError(w, http.StatusInternalServerError, errors.New("unable to insert url into db"))
+		return
+	}
 
-	response := map[string]string{"short_url": url.Shorten()}
+	response := map[string]string{"short_url": shortId}
 	respBytes, err := json.Marshal(response)
 	if err != nil {
 		fmt.Println("Error marshalling response:", err)
@@ -85,9 +97,16 @@ func UrlShortenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetUrlHandler(w http.ResponseWriter, _ *http.Request) {
+func (t *turlApp) GetUrlHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	responseBytes, err := json.Marshal(UrlMapping)
+	urlData, err := t.DB.GetUrls()
+	if err != nil {
+		fmt.Println(err)
+		WriteError(w, http.StatusInternalServerError, errors.New("unable to get url data"))
+		return
+	}
+	//responseBytes, err := json.Marshal(UrlMapping)
+	responseBytes, err := json.Marshal(urlData)
 	if err != nil {
 		fmt.Println("Error marshalling response:", err)
 	}
@@ -97,7 +116,7 @@ func GetUrlHandler(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func RedirectHandler(w http.ResponseWriter, r *http.Request) {
+func (t *turlApp) RedirectHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	shortCode := r.PathValue("shortCode")
 	redirectUrl, ok := UrlMapping[shortCode]
@@ -109,6 +128,24 @@ func RedirectHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	DB, err := database.CreateDB()
+	defer DB.Close()
+	if err != nil {
+		log.Fatal("unable to create db:", err)
+	}
+	rows, err := DB.Query("Select count(*) from urls")
+	if err != nil {
+		log.Fatal("unable to query urls table:", err)
+	}
+	var urlsCount *int
+	rows.Next()
+	err = rows.Scan(&urlsCount)
+	rows.Close()
+	if err != nil {
+		log.Fatal("unable to scan urls count:", err)
+	}
+	fmt.Println("URLs count:", *urlsCount)
+
 	var osSignal = make(chan os.Signal, 1)
 
 	readFile, err := os.OpenFile("url_mapping.json", os.O_CREATE, os.ModePerm)
@@ -127,9 +164,10 @@ func main() {
 		log.Fatal("unable to unmarshall json mapping", err)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /shorten", UrlShortenHandler)
-	mux.HandleFunc("GET /urls", GetUrlHandler)
-	mux.HandleFunc("GET /t/{shortCode}", RedirectHandler)
+	app := &turlApp{DB: DB}
+	mux.HandleFunc("POST /shorten", app.UrlShortenHandler)
+	mux.HandleFunc("GET /urls", app.GetUrlHandler)
+	mux.HandleFunc("GET /t/{shortCode}", app.RedirectHandler)
 
 	server := &http.Server{
 		Addr:    ":8080",
