@@ -2,6 +2,7 @@ package main
 
 import (
 	"Turl/database"
+	"Turl/middleware"
 	"context"
 	"encoding/json"
 	"errors"
@@ -100,7 +101,6 @@ func (t *turlApp) GetUrlHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	urlData, err := t.DB.GetUrls()
 	if err != nil {
-		fmt.Println(err)
 		WriteError(w, http.StatusInternalServerError, errors.New("unable to get url data"))
 		return
 	}
@@ -157,7 +157,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:    ":8080",
-		Handler: mux,
+		Handler: middleware.LoggingMiddleware(mux),
 	}
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
