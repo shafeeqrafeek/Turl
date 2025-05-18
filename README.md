@@ -89,3 +89,9 @@ handling. like WriteError function which is used inside a *if err != nil* block.
 # Issues to Fix
 
 1. how to create live server and auto-detect changes?
+
+# Logger Middleware
+
+logger middleware is something that accepts a http.Handler and returns a http.Handler. The returned handler
+does something in the "middle" (like logging something in case of logging middleware) and 
+just calls the input handler's ServeHTTP method

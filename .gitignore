@@ -15,6 +15,7 @@ url_mapping.json
 /bin/
 /build/
 /dist/
+tmp/
 
 # Output of `go run`
 *.out
