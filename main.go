@@ -17,8 +17,6 @@ import (
 	"time"
 )
 
-var UrlMapping = map[string]string{}
-
 type UrlData struct {
 	Url string `json:"url"`
 }
