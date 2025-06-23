@@ -1,7 +1,10 @@
 package main
 
 import (
+	"Turl/database"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -10,17 +13,29 @@ import (
 	"testing"
 )
 
-func TestShorten(t *testing.T) {
-	UrlMapping = map[string]string{}
-	testUrl := UrlData{Url: "http://google.com"}
-	shortUrl := testUrl.Shorten()
-	if len(shortUrl) != 6 {
-		t.Errorf("shortened url length should be 6")
+func setupApp(t *testing.T) *turlApp {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		fmt.Println("DB setup for tests failed:", err)
+		panic(err)
 	}
-	storedUrl := UrlMapping[shortUrl]
-	if storedUrl != testUrl.Url {
-		t.Errorf("shortened url should be %s not %s", testUrl.Url, storedUrl)
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS urls (id INTEGER PRIMARY KEY, url TEXT, short_code TEXT)`)
+	require.NoError(t, err)
+	testDB := database.DB{db}
+	testApp := &turlApp{
+		&testDB,
 	}
+
+	t.Cleanup(
+		func() {
+			err := db.Close()
+			if err != nil {
+				panic(err)
+			}
+		})
+
+	return testApp
+
 }
 
 func TestValidateUrl(t *testing.T) {
@@ -66,7 +81,8 @@ func TestParseRequest(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/shorten", strings.NewReader(testCase.payload))
 			req.Header.Add("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-			UrlShortenHandler(w, req)
+			testApp := setupApp(t)
+			testApp.UrlShortenHandler(w, req)
 			resp := w.Result()
 			testResp := map[string]string{}
 			err := json.NewDecoder(resp.Body).Decode(&testResp)
@@ -84,18 +100,24 @@ func TestParseRequest(t *testing.T) {
 }
 
 func TestListUrls(t *testing.T) {
-	UrlMapping = map[string]string{
-		"abcd": "http://google.com",
-		"cdef": "http://gmail.com",
-	}
-	defer func() { UrlMapping = map[string]string{} }()
+	testApp := setupApp(t)
+	err := testApp.DB.InsertUrl("http://google.com", "foo123")
+	require.NoError(t, err)
+	err = testApp.DB.InsertUrl("http://linkedin.com", "bar456")
+	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodGet, "/urls", nil)
 	w := httptest.NewRecorder()
-	GetUrlHandler(w, req)
+	testApp.GetUrlHandler(w, req)
 	resp := w.Result()
-	testResp := map[string]string{}
-	err := json.NewDecoder(resp.Body).Decode(&testResp)
+	actual := map[string]string{}
+	err = json.NewDecoder(resp.Body).Decode(&actual)
+	require.NoError(t, err)
+
+	expected := map[string]string{
+		"foo123": "http://google.com",
+		"bar456": "http://linkedin.com",
+	}
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, UrlMapping, testResp)
+	assert.Equal(t, expected, actual)
 }
